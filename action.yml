@@ -36,7 +36,8 @@ outputs:
 
 runs:
   using: 'node20'
-  main: 'dist/index.js'
+  main: 'dist/setup/index.js'
+  post: 'dist/shutdown/index.js'
 
 permissions:
   contents: read

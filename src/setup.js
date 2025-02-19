@@ -4,6 +4,7 @@ const tc = require('@actions/tool-cache');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const os = require('os');
 
 const ORBIT_ORG = "orbitci";
 const ORBIT_AGENT_REPO = "orbit-ebpf";
@@ -31,7 +32,7 @@ async function downloadRelease(octokit, version) {
 }
 
 async function setupBinaries(release, githubToken, octokit) {
-  const binariesDir = path.join(__dirname, '..', 'bin');
+  const binariesDir = path.join(__dirname, '..', '..', 'bin');
   fs.mkdirSync(binariesDir, { recursive: true });
   
   core.debug(`Downloading assets to ${binariesDir}`);
@@ -81,7 +82,7 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
 
   const orbitdPath = path.join(binariesDir, 'orbitd');
   const orbitPath = path.join(binariesDir, 'orbit');
-  const pidFile = path.join(__dirname, '..', 'orbitd.pid');
+  const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {

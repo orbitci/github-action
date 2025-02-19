@@ -19,4 +19,4 @@ export INPUT_SERVER_ADDR="${SERVER_ADDR:-api.nonprod.eu.orbit.ci}"
 export RUNNER_DEBUG=1
 
 # Run the action
-npm run local 
+npm run orbit:setup

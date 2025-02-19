@@ -1,4 +1,4 @@
-require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
+/******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
 /***/ 4914:
@@ -34386,6 +34386,7 @@ const tc = __nccwpck_require__(3472);
 const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
 const { spawn } = __nccwpck_require__(5317);
+const os = __nccwpck_require__(857);
 
 const ORBIT_ORG = "orbitci";
 const ORBIT_AGENT_REPO = "orbit-ebpf";
@@ -34413,7 +34414,7 @@ async function downloadRelease(octokit, version) {
 }
 
 async function setupBinaries(release, githubToken, octokit) {
-  const binariesDir = path.join(__dirname, '..', 'bin');
+  const binariesDir = path.join(__dirname, '..', '..', 'bin');
   fs.mkdirSync(binariesDir, { recursive: true });
   
   core.debug(`Downloading assets to ${binariesDir}`);
@@ -34463,7 +34464,7 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
 
   const orbitdPath = path.join(binariesDir, 'orbitd');
   const orbitPath = path.join(binariesDir, 'orbit');
-  const pidFile = path.join(__dirname, '..', 'orbitd.pid');
+  const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -34547,4 +34548,3 @@ run();
 module.exports = __webpack_exports__;
 /******/ })()
 ;
-//# sourceMappingURL=index.js.map
