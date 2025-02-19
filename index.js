@@ -30,8 +30,8 @@ async function downloadRelease(octokit, version) {
   return { release, releaseTag };
 }
 
-async function setupBinaries(release, githubToken) {
-  const binariesDir = path.join(process.cwd(), 'bin');
+async function setupBinaries(release, githubToken, octokit) {
+  const binariesDir = path.join(__dirname, '..', 'bin');
   fs.mkdirSync(binariesDir, { recursive: true });
   
   core.debug(`Downloading assets to ${binariesDir}`);
@@ -81,9 +81,13 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
 
   const orbitdPath = path.join(binariesDir, 'orbitd');
   const orbitPath = path.join(binariesDir, 'orbit');
-  const pidFile = path.join(process.cwd(), 'orbitd.pid');
+  const pidFile = path.join(__dirname, '..', 'orbitd.pid');
 
   return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout waiting for orbitd to start'));
+    }, 10000);
+
     const orbitd = spawn('sudo', [
       '-E',
       orbitdPath,
@@ -94,34 +98,31 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
       `-log-file=${logFile}`
     ], {
       detached: true,
-      stdio: ['ignore', 'inherit', 'inherit'],
+      stdio: 'ignore', // Ignore all stdio since orbitd handles its own logging
       shell: false
     });
 
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for orbitd to start'));
-      }, 5000);
-  
-      process.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(new Error(`Failed to start orbitd: ${err.message}`));
-      });
-  
-      process.on('spawn', async () => {
-        clearTimeout(timeout);
-        try {
-          await fs.promises.writeFile(pidFile, process.pid.toString());
-          process.unref();  // Allows parent to exit independently
-          resolve(process.pid.toString());
-        } catch (err) {
-          reject(new Error(`Failed to write PID file: ${err.message}`));
-        }
-      });
+    orbitd.on('error', (err) => {
+      core.debug(`orbitd error: ${err.message}`);
+      clearTimeout(timeout);
+      reject(new Error(`Failed to start orbitd: ${err.message}`));
     });
 
-    // Handle early exit
+    orbitd.on('spawn', async () => {
+      core.debug('orbitd spawned');
+      clearTimeout(timeout);
+      try {
+        await fs.promises.writeFile(pidFile, orbitd.pid.toString());
+        orbitd.unref();  // Allows parent to exit independently
+        resolve(orbitd.pid.toString());
+      } catch (err) {
+        reject(new Error(`Failed to write PID file: ${err.message}`));
+      }
+    });
+
     orbitd.on('exit', (code, signal) => {
+      core.debug(`orbitd exited with code ${code} and signal ${signal}`);
+      clearTimeout(timeout);
       if (code !== null) {
         reject(new Error(`orbitd exited with code ${code}. Check ${logFile} for errors`));
       } else if (signal !== null) {
@@ -138,12 +139,14 @@ async function run() {
     const githubToken = core.getInput('github_token', { required: true });
     const logFile = core.getInput('log_file');
     const serverAddr = core.getInput('server_addr');
+
+    core.exportVariable('ORBITCI_API_TOKEN', apiToken);
     
     const octokit = github.getOctokit(githubToken);
     
     const { release, releaseTag } = await downloadRelease(octokit, version);
     
-    const binariesDir = await setupBinaries(release, githubToken);
+    const binariesDir = await setupBinaries(release, githubToken, octokit);
     core.addPath(binariesDir);
     
     const pid = await startOrbitd(binariesDir, apiToken, logFile, serverAddr);
