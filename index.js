@@ -145,11 +145,13 @@ async function run() {
     const octokit = github.getOctokit(githubToken);
     
     const { release, releaseTag } = await downloadRelease(octokit, version);
+    core.info(`Using Orbit agent version: ${releaseTag}`);
     
     const binariesDir = await setupBinaries(release, githubToken, octokit);
     core.addPath(binariesDir);
     
     const pid = await startOrbitd(binariesDir, apiToken, logFile, serverAddr);
+    core.info(`✨ Orbit agent started successfully (PID: ${pid})`);
 
     core.setOutput('version', releaseTag);
     core.setOutput('binary_path', binariesDir);
