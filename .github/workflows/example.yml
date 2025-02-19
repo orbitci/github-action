@@ -1,0 +1,15 @@
+name: Example Workflow
+on: [push]
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Setup Orbit Agent
+        uses: orbitci/github-action@v1  # Changed from setup-action to github-action
+        with:
+          api_token: ${{ secrets.ORBIT_API_TOKEN }}
+          github_token: ${{ secrets.GH_PAT }}  # PAT with access to private repos
+          version: 'latest'  # optional, defaults to latest 

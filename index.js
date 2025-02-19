@@ -1,47 +1,11 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const https = require('https');
+const tc = require('@actions/tool-cache');
 const fs = require('fs');
 const path = require('path');
 
 const ORBIT_ORG = "orbitci";
 const ORBIT_AGENT_REPO = "orbit-ebpf";
-
-async function downloadFile(url, destPath, token) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    const options = {
-      headers: {
-        'Authorization': `token ${token}`,
-        'Accept': 'application/octet-stream',
-        'User-Agent': 'GitHub-Action'
-      }
-    };
-    
-    https.get(url, options, response => {
-      if (response.statusCode === 302) {
-        // Handle GitHub's redirect for release assets
-        https.get(response.headers.location, response => {
-          response.pipe(file);
-          file.on('finish', () => {
-            file.close();
-            resolve();
-          });
-        }).on('error', err => {
-          fs.unlink(destPath, () => reject(err));
-        });
-      } else {
-        response.pipe(file);
-        file.on('finish', () => {
-          file.close();
-          resolve();
-        });
-      }
-    }).on('error', err => {
-      fs.unlink(destPath, () => reject(err));
-    });
-  });
-}
 
 async function run() {
   try {
@@ -74,13 +38,38 @@ async function run() {
     
     core.debug(`Downloading assets to ${binariesDir}`);
     for (const asset of release.data.assets) {
-      const assetPath = path.join(binariesDir, asset.name);
-      core.debug(`Downloading ${asset.name}...`);
-      await downloadFile(asset.browser_download_url, assetPath, githubToken);
-      
-      // Make binary executable on Unix-like systems
-      if (process.platform !== 'win32') {
-        fs.chmodSync(assetPath, '755');
+      if (asset.name.startsWith('orbit') && asset.name.endsWith('.tar.gz')) {
+        core.debug(`Processing ${asset.name}...`);
+        
+        // Get the asset download URL
+        const assetData = await octokit.rest.repos.getReleaseAsset({
+          owner: ORBIT_ORG,
+          repo: ORBIT_AGENT_REPO,
+          asset_id: asset.id,
+          headers: {
+            Accept: 'application/octet-stream'
+          }
+        });
+        
+        const downloadPath = await tc.downloadTool(
+          assetData.url,
+          undefined,
+          `token ${githubToken}`,
+          {
+            'Accept': 'application/octet-stream'
+          }
+        );
+        
+        await tc.extractTar(downloadPath, binariesDir, ['xz', '--strip-components=1']);
+        
+        // Make all files in bin directory executable on Unix-like systems
+        if (process.platform !== 'win32') {
+          const files = fs.readdirSync(binariesDir);
+          for (const file of files) {
+            const filePath = path.join(binariesDir, file);
+            fs.chmodSync(filePath, '755');
+          }
+        }
       }
     }
     

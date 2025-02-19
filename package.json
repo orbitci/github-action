@@ -18,7 +18,9 @@
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",
-    "pnpm": "^10.4.1"
+    "@actions/tool-cache": "^2.0.1",
+    "pnpm": "^10.4.1",
+    "tar": "^6.2.0"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.38.3",
