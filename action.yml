@@ -1,0 +1,30 @@
+name: 'Orbit - Setup Orbit CI agent'
+description: 'Sets up Orbit CI agents in your Github Actions workflow'
+author: 'Orbit CI'
+
+inputs:
+  api_token:
+    description: 'The API token to use to publish events to Orbit'
+    required: true
+
+  github_token:
+    description: 'GitHub token with access to download releases from the organization repositories'
+    required: true
+
+  version: 
+    description: 'The version of Orbit CLI binaries to install. Specify `latest` to install the latest stable version.'
+    required: false
+    default: 'latest'
+
+outputs:
+  version:
+    description: 'The version of the CLI that was installed'
+  binary_path:
+    description: 'The path where the CLI binaries were installed'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+
+permissions:
+  contents: read
