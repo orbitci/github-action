@@ -16,11 +16,23 @@ inputs:
     required: false
     default: 'latest'
 
+  log_file:
+    description: 'Path to the log file for orbitd. Must be writable by sudo.'
+    required: false
+    default: '/var/log/orbitd.log'
+
+  server_addr:
+    description: 'The address of the Orbit server to connect to'
+    required: false
+    default: 'api.nonprod.eu.orbit.ci'
+
 outputs:
   version:
     description: 'The version of the CLI that was installed'
   binary_path:
     description: 'The path where the CLI binaries were installed'
+  pid:
+    description: 'The process ID of the running orbitd daemon'
 
 runs:
   using: 'node20'
