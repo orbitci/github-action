@@ -133,6 +133,35 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
   });
 }
 
+async function triggerJobStart(binariesDir) {
+  return new Promise((resolve, reject) => {
+    const orbitPath = path.join(binariesDir, 'orbit');
+    const orbit = spawn(orbitPath, ['event', 'job-start']);
+
+    let output = '';
+    orbit.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    orbit.stderr.on('data', (data) => {
+      core.debug(`orbit command stderr: ${data}`);
+    });
+
+    orbit.on('exit', (code) => {
+      if (code === 0) {
+        core.debug(`orbit command output: ${output.trim()}`);
+        resolve();
+      } else {
+        reject(new Error(`orbit command failed with exit code ${code}`));
+      }
+    });
+
+    orbit.on('error', (err) => {
+      reject(new Error(`Failed to execute orbit command: ${err.message}`));
+    });
+  });
+}
+
 async function run() {
   try {
     const version = core.getInput('version');
@@ -153,6 +182,10 @@ async function run() {
     
     const pid = await startOrbitd(binariesDir, apiToken, logFile, serverAddr);
     core.info(`✨ Orbit agent started successfully (PID: ${pid})`);
+
+    // Run orbit event command
+    await triggerJobStart(binariesDir);
+    core.info('✨ Job start event sent successfully');
 
     core.setOutput('version', releaseTag);
     core.setOutput('binary_path', binariesDir);

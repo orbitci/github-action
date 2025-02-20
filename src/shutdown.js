@@ -2,11 +2,41 @@ const os = require('os');
 const core = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
+
+async function triggerJobEnd(binariesDir) {
+  return new Promise((resolve, reject) => {
+    const orbitPath = path.join(binariesDir, 'orbit');
+    const orbit = spawn(orbitPath, ['event', 'job-end']);
+
+    let output = '';
+    orbit.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    orbit.stderr.on('data', (data) => {
+      core.debug(`orbit command stderr: ${data}`);
+    });
+
+    orbit.on('exit', (code) => {
+      if (code === 0) {
+        core.debug(`orbit command output: ${output.trim()}`);
+        resolve();
+      } else {
+        reject(new Error(`orbit command failed with exit code ${code}`));
+      }
+    });
+
+    orbit.on('error', (err) => {
+      reject(new Error(`Failed to execute orbit command: ${err.message}`));
+    });
+  });
+}
 
 async function cleanup() {
   try {
     const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
+    const binariesDir = path.join(__dirname, '..', '..', 'bin');
     
     // Check if PID file exists
     if (!fs.existsSync(pidFile)) {
@@ -17,6 +47,14 @@ async function cleanup() {
     // Read PID from file
     const pid = fs.readFileSync(pidFile, 'utf8').trim();
     core.debug(`Found orbitd PID: ${pid}`);
+
+    // Send job-end event before stopping the daemon
+    try {
+      await triggerJobEnd(binariesDir);
+      core.info('✨ Job end event sent successfully');
+    } catch (error) {
+      core.warning(`Failed to send job end event: ${error.message}`);
+    }
 
     // First try to terminate gracefully
     await new Promise((resolve, reject) => {
