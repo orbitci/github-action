@@ -33,10 +33,33 @@ async function triggerJobEnd(binariesDir) {
   });
 }
 
+async function showLogFileContents(logFile) {
+  try {
+    if (fs.existsSync(logFile)) {
+      const contents = fs.readFileSync(logFile, 'utf8');
+      core.debug('=== orbitd log contents ===');
+      contents.split('\n').forEach(line => {
+        if (line.trim()) {
+          core.debug(line);
+        }
+      });
+      core.debug('=== end orbitd log ===');
+    } else {
+      core.debug(`Log file not found: ${logFile}`);
+    }
+  } catch (error) {
+    core.warning(`Failed to read log file: ${error.message}`);
+  }
+}
+
 async function cleanup() {
   try {
     const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
     const binariesDir = path.join(__dirname, '..', '..', 'bin');
+    const logFile = core.getInput('log_file');
+    
+    // Show log file contents before cleanup
+    await showLogFileContents(logFile);
     
     // Check if PID file exists
     if (!fs.existsSync(pidFile)) {
@@ -101,7 +124,7 @@ async function cleanup() {
     // Clean up PID file
     try {
       fs.unlinkSync(pidFile);
-      core.info('🛑 Orbit agent stopped successfully and PID file removed');
+      core.info('✨ Orbit agent stopped successfully and PID file removed');
     } catch (error) {
       core.warning(`Failed to remove PID file: ${error.message}`);
     }
