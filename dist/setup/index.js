@@ -34481,7 +34481,7 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
       `-log-file=${logFile}`
     ], {
       detached: true,
-      stdio: 'ignore', // Ignore all stdio since orbitd handles its own logging
+      stdio: 'ignore',
       shell: false
     });
 
@@ -34494,9 +34494,16 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
     orbitd.on('spawn', async () => {
       core.debug('orbitd spawned');
       clearTimeout(timeout);
+      
       try {
         await fs.promises.writeFile(pidFile, orbitd.pid.toString());
         orbitd.unref();  // Allows parent to exit independently
+        
+        // Wait additional 5 seconds for the process to be ready
+        core.debug('Waiting 5 seconds for orbitd to be ready...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        core.debug('Ready wait completed');
+        
         resolve(orbitd.pid.toString());
       } catch (err) {
         reject(new Error(`Failed to write PID file: ${err.message}`));
