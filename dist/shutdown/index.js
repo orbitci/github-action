@@ -27611,23 +27611,16 @@ async function showLogFileContents(logFile) {
 
 async function cleanup() {
   try {
-    const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
+    const orbitdPid = core.getState('orbitdPid');
+    if (!orbitdPid) {
+      core.warning('No Orbit daemon PID found');
+    } else {
+      core.debug(`Found Orbit daemon PID: ${orbitdPid}`);
+    }
+
     const binariesDir = path.join(__dirname, '..', '..', 'bin');
     const logFile = core.getInput('log_file');
     
-    // Show log file contents before cleanup
-    await showLogFileContents(logFile);
-    
-    // Check if PID file exists
-    if (!fs.existsSync(pidFile)) {
-      core.info('No PID file found, orbitd may not be running');
-      return;
-    }
-
-    // Read PID from file
-    const pid = fs.readFileSync(pidFile, 'utf8').trim();
-    core.debug(`Found orbitd PID: ${pid}`);
-
     // Send job-end event before stopping the daemon
     try {
       await triggerJobEnd(binariesDir);
@@ -27639,18 +27632,18 @@ async function cleanup() {
     // First try to terminate gracefully
     await new Promise((resolve, reject) => {
       try {
-        process.kill(pid, 'SIGTERM');
-        core.info(`Sent SIGTERM to process ${pid}`);
+        process.kill(orbitdPid, 'SIGTERM');
+        core.info(`Sent SIGTERM to process ${orbitdPid}`);
         
         // Give the process some time to shutdown gracefully
         const timeout = setTimeout(() => {
           try {
             // If process still exists, force kill it
-            process.kill(pid, 'SIGKILL');
-            core.info(`Process ${pid} force killed with SIGKILL`);
+            process.kill(orbitdPid, 'SIGKILL');
+            core.info(`Process ${orbitdPid} force killed with SIGKILL`);
           } catch (error) {
             // Process might have already terminated
-            core.debug(`Process ${pid} already terminated`);
+            core.debug(`Process ${orbitdPid} already terminated`);
           }
           resolve();
         }, 5000);
@@ -27659,7 +27652,7 @@ async function cleanup() {
         const checkInterval = setInterval(() => {
           try {
             // Try to send signal 0 to check if process exists
-            process.kill(pid, 0);
+            process.kill(orbitdPid, 0);
           } catch (error) {
             // Process has terminated
             clearInterval(checkInterval);
@@ -27670,7 +27663,7 @@ async function cleanup() {
 
       } catch (error) {
         if (error.code === 'ESRCH') {
-          core.info(`Process ${pid} already terminated`);
+          core.info(`Process ${orbitdPid} already terminated`);
           resolve();
         } else {
           reject(error);
@@ -27678,17 +27671,15 @@ async function cleanup() {
       }
     });
 
-    // Clean up PID file
-    try {
-      fs.unlinkSync(pidFile);
-      core.info('✨ Orbit agent stopped successfully and PID file removed');
-    } catch (error) {
-      core.warning(`Failed to remove PID file: ${error.message}`);
-    }
+    core.info('✨ Orbit agent stopped successfully');
 
+    // Show final log contents
+    if (core.isDebug()) {
+      core.debug('Final log contents after shutdown:');
+      await showLogFileContents(logFile);
+    }
   } catch (error) {
     core.setFailed(`Cleanup failed: ${error.message}`);
-    // Ensure the process exits with error
     process.exit(1);
   }
 }

@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const os = require('os');
+const { platform } = require('@actions/core');
 
 const ORBIT_ORG = "orbitci";
 const ORBIT_AGENT_REPO = "orbit-ebpf";
@@ -32,62 +33,78 @@ async function downloadRelease(octokit, version) {
 }
 
 async function setupBinaries(release, githubToken, octokit) {
+  // Check platform
+  const supportedPlatforms = ['linux'];
+  if (!supportedPlatforms.includes(platform.platform)) {
+    throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
+  }
+
+  // Check architecture
+  const supportedArchs = ['x64', 'arm64'];
+  if (!supportedArchs.includes(platform.arch)) {
+    throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
+  }
+
   const binariesDir = path.join(__dirname, '..', '..', 'bin');
   fs.mkdirSync(binariesDir, { recursive: true });
   
-  core.debug(`Downloading assets to ${binariesDir}`);
-  for (const asset of release.data.assets) {
-    if (asset.name.startsWith('orbit') && asset.name.endsWith('.tar.gz')) {
-      core.debug(`Processing ${asset.name}...`);
-      
-      // Get the asset download URL
-      const assetData = await octokit.rest.repos.getReleaseAsset({
-        owner: ORBIT_ORG,
-        repo: ORBIT_AGENT_REPO,
-        asset_id: asset.id,
-        headers: {
-          Accept: 'application/octet-stream'
-        }
-      });
-      
-      const downloadPath = await tc.downloadTool(
-        assetData.url,
-        undefined,
-        `token ${githubToken}`,
-        {
-          'Accept': 'application/octet-stream'
-        }
-      );
-      
-      await tc.extractTar(downloadPath, binariesDir, ['xz', '--strip-components=1']);
-      
-      // Make all files in bin directory executable on Unix-like systems
-      if (process.platform !== 'win32') {
-        const files = fs.readdirSync(binariesDir);
-        for (const file of files) {
-          const filePath = path.join(binariesDir, file);
-          fs.chmodSync(filePath, '755');
-        }
-      }
+  const version = release.data.tag_name;
+  
+  const expectedAssets = [
+    `orbit-${version}-${platform.platform}-${platform.arch}.tar.gz`,
+    `orbitd-${version}-${platform.platform}-${platform.arch}.tar.gz`
+  ];
+  
+  core.debug(`Looking for assets: ${expectedAssets.join(', ')}`);
+  
+  for (const assetName of expectedAssets) {
+    const asset = release.data.assets.find(a => a.name === assetName);
+    if (!asset) {
+      throw new Error(`Required asset not found: ${assetName}`);
     }
+
+    core.debug(`Processing ${assetName}...`);
+    
+    // Get the asset download URL
+    const assetData = await octokit.rest.repos.getReleaseAsset({
+      owner: ORBIT_ORG,
+      repo: ORBIT_AGENT_REPO,
+      asset_id: asset.id,
+      headers: {
+        Accept: 'application/octet-stream'
+      }
+    });
+    
+    const downloadPath = await tc.downloadTool(
+      assetData.url,
+      undefined,
+      `token ${githubToken}`,
+      {
+        'Accept': 'application/octet-stream'
+      }
+    );
+    
+    await tc.extractTar(downloadPath, binariesDir, ['xz', '--strip-components=1']);
+  }
+
+  // Make all files in bin directory executable
+  const files = fs.readdirSync(binariesDir);
+  for (const file of files) {
+    const filePath = path.join(binariesDir, file);
+    fs.chmodSync(filePath, '755');
   }
 
   return binariesDir;
 }
 
 async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
-  if (process.platform === 'win32') {
-    throw new Error('Windows is not supported');
-  }
-
   const orbitdPath = path.join(binariesDir, 'orbitd');
   const orbitPath = path.join(binariesDir, 'orbit');
-  const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Timeout waiting for orbitd to start'));
-    }, 10000);
+    }, 5000);
 
     const orbitd = spawn('sudo', [
       '-E',
@@ -113,19 +130,15 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
       core.debug('orbitd spawned');
       clearTimeout(timeout);
       
-      try {
-        await fs.promises.writeFile(pidFile, orbitd.pid.toString());
-        orbitd.unref();  // Allows parent to exit independently
+      core.saveState('orbitdPid', orbitd.pid.toString());
+      orbitd.unref();  // Allows parent to exit independently
+      
+      // Wait additional 5 seconds for the process to be ready
+      core.debug('Waiting 5 seconds for orbitd to be ready...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      core.debug('Ready wait completed');
         
-        // Wait additional 5 seconds for the process to be ready
-        core.debug('Waiting 5 seconds for orbitd to be ready...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        core.debug('Ready wait completed');
-        
-        resolve(orbitd.pid.toString());
-      } catch (err) {
-        reject(new Error(`Failed to write PID file: ${err.message}`));
-      }
+      resolve(orbitd.pid.toString());
     });
 
     orbitd.on('exit', (code, signal) => {
@@ -196,7 +209,6 @@ async function run() {
 
     core.setOutput('version', releaseTag);
     core.setOutput('binary_path', binariesDir);
-    core.setOutput('pid', pid);
   } catch (error) {
     core.setFailed(error.message);
   }

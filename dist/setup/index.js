@@ -34464,12 +34464,11 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
 
   const orbitdPath = path.join(binariesDir, 'orbitd');
   const orbitPath = path.join(binariesDir, 'orbit');
-  const pidFile = path.join(os.tmpdir(), 'orbitd.pid');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Timeout waiting for orbitd to start'));
-    }, 10000);
+    }, 5000);
 
     const orbitd = spawn('sudo', [
       '-E',
@@ -34495,19 +34494,15 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
       core.debug('orbitd spawned');
       clearTimeout(timeout);
       
-      try {
-        await fs.promises.writeFile(pidFile, orbitd.pid.toString());
-        orbitd.unref();  // Allows parent to exit independently
+      core.saveState('orbitdPid', orbitd.pid.toString());
+      orbitd.unref();  // Allows parent to exit independently
+      
+      // Wait additional 5 seconds for the process to be ready
+      core.debug('Waiting 5 seconds for orbitd to be ready...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      core.debug('Ready wait completed');
         
-        // Wait additional 5 seconds for the process to be ready
-        core.debug('Waiting 5 seconds for orbitd to be ready...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        core.debug('Ready wait completed');
-        
-        resolve(orbitd.pid.toString());
-      } catch (err) {
-        reject(new Error(`Failed to write PID file: ${err.message}`));
-      }
+      resolve(orbitd.pid.toString());
     });
 
     orbitd.on('exit', (code, signal) => {
@@ -34578,7 +34573,6 @@ async function run() {
 
     core.setOutput('version', releaseTag);
     core.setOutput('binary_path', binariesDir);
-    core.setOutput('pid', pid);
   } catch (error) {
     core.setFailed(error.message);
   }
