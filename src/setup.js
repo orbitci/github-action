@@ -1,22 +1,21 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const tc = require('@actions/tool-cache');
+const { spawn } = require('child_process');
+const { platform } = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
-const os = require('os');
-const { platform } = require('@actions/core');
 
-const ORBIT_ORG = "orbitci";
-const ORBIT_AGENT_REPO = "orbit-ebpf";
+const ORBITCI_ORG = "orbitci";
+const ORBITCI_AGENT_REPO = "orbit-ebpf";
 
 async function downloadRelease(octokit, version) {
   let releaseTag = version;
   if (version === 'latest') {
     core.debug('Fetching latest release tag ...');
     const latestRelease = await octokit.rest.repos.getLatestRelease({
-      owner: ORBIT_ORG,
-      repo: ORBIT_AGENT_REPO
+      owner: ORBITCI_ORG,
+      repo: ORBITCI_AGENT_REPO
     });
     releaseTag = latestRelease.data.tag_name;
     core.debug(`Latest release tag: ${releaseTag}`);
@@ -24,8 +23,8 @@ async function downloadRelease(octokit, version) {
 
   core.debug(`Fetching release: ${releaseTag}`);
   const release = await octokit.rest.repos.getReleaseByTag({
-    owner: ORBIT_ORG,
-    repo: ORBIT_AGENT_REPO,
+    owner: ORBITCI_ORG,
+    repo: ORBITCI_AGENT_REPO,
     tag: releaseTag
   });
 
@@ -33,73 +32,53 @@ async function downloadRelease(octokit, version) {
 }
 
 async function setupBinaries(release, githubToken, octokit) {
-  // Check platform
-  const supportedPlatforms = ['linux'];
-  if (!supportedPlatforms.includes(platform.platform)) {
-    throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
-  }
-
-  // Check architecture
-  const supportedArchs = ['x64', 'arm64'];
-  if (!supportedArchs.includes(platform.arch)) {
-    throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
-  }
-
-  const binariesDir = path.join(__dirname, '..', '..', 'bin');
-  fs.mkdirSync(binariesDir, { recursive: true });
-  
   const version = release.data.tag_name;
+  const assetName = `orbit-${version}-github-${platform.platform}-${platform.arch}.tar.gz`;
   
-  const expectedAssets = [
-    `orbit-${version}-${platform.platform}-${platform.arch}.tar.gz`,
-    `orbitd-${version}-${platform.platform}-${platform.arch}.tar.gz`
-  ];
+  core.debug(`Looking for asset: ${assetName}`);
   
-  core.debug(`Looking for assets: ${expectedAssets.join(', ')}`);
-  
-  for (const assetName of expectedAssets) {
-    const asset = release.data.assets.find(a => a.name === assetName);
-    if (!asset) {
-      throw new Error(`Required asset not found: ${assetName}`);
-    }
-
-    core.debug(`Processing ${assetName}...`);
-    
-    // Get the asset download URL
-    const assetData = await octokit.rest.repos.getReleaseAsset({
-      owner: ORBIT_ORG,
-      repo: ORBIT_AGENT_REPO,
-      asset_id: asset.id,
-      headers: {
-        Accept: 'application/octet-stream'
-      }
-    });
-    
-    const downloadPath = await tc.downloadTool(
-      assetData.url,
-      undefined,
-      `token ${githubToken}`,
-      {
-        'Accept': 'application/octet-stream'
-      }
-    );
-    
-    await tc.extractTar(downloadPath, binariesDir, ['xz', '--strip-components=1']);
+  const asset = release.data.assets.find(a => a.name === assetName);
+  if (!asset) {
+    throw new Error(`Required asset not found: ${assetName}`);
   }
+
+  core.debug(`Processing ${assetName}...`);
+  
+  const assetData = await octokit.rest.repos.getReleaseAsset({
+    owner: ORBITCI_ORG,
+    repo: ORBITCI_AGENT_REPO,
+    asset_id: asset.id,
+    headers: {
+      Accept: 'application/octet-stream'
+    }
+  });
+  
+  const downloadPath = await tc.downloadTool(
+    assetData.url,
+    undefined,
+    `token ${githubToken}`,
+    {
+      'Accept': 'application/octet-stream'
+    }
+  );
+  
+  const pathToCLI = await tc.extractTar(downloadPath, undefined, ['xz', '--strip-components=1']);
+  core.debug(`Orbit CLI path: ${pathToCLI}`);
 
   // Make all files in bin directory executable
-  const files = fs.readdirSync(binariesDir);
+  const files = fs.readdirSync(pathToCLI);
   for (const file of files) {
-    const filePath = path.join(binariesDir, file);
+    const filePath = path.join(pathToCLI, file);
     fs.chmodSync(filePath, '755');
   }
 
-  return binariesDir;
+  return pathToCLI;
 }
 
-async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
-  const orbitdPath = path.join(binariesDir, 'orbitd');
-  const orbitPath = path.join(binariesDir, 'orbit');
+async function startOrbitd(pathToCLI, serverAddr) {
+  // Use absolute paths for sudo commands to work
+  const orbitdPath = path.join(pathToCLI, 'orbitd');
+  const orbitPath = path.join(pathToCLI, 'orbit');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -113,7 +92,7 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
       `-server-addr=${serverAddr}`,
       '-log-level=1',
       '-debug',
-      `-log-file=${logFile}`
+      `-log-file=/var/log/orbitd.log`
     ], {
       detached: true,
       stdio: 'ignore',
@@ -153,10 +132,9 @@ async function startOrbitd(binariesDir, apiToken, logFile, serverAddr) {
   });
 }
 
-async function triggerJobStart(binariesDir) {
+async function triggerJobStart() {
   return new Promise((resolve, reject) => {
-    const orbitPath = path.join(binariesDir, 'orbit');
-    const orbit = spawn(orbitPath, ['event', 'job-start']);
+    const orbit = spawn('orbit', ['event', 'job-start']);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -184,31 +162,40 @@ async function triggerJobStart(binariesDir) {
 
 async function run() {
   try {
+    const apiToken = core.getInput('orbitci_api_token', { required: true });
+    const serverAddr = core.getInput('orbitci_server_addr');
     const version = core.getInput('version');
-    const apiToken = core.getInput('api_token', { required: true });
     const githubToken = core.getInput('github_token', { required: true });
-    const logFile = core.getInput('log_file');
-    const serverAddr = core.getInput('server_addr');
 
+    // TODO: Set env variables for server address
     core.exportVariable('ORBITCI_API_TOKEN', apiToken);
     
     const octokit = github.getOctokit(githubToken);
+
+    const supportedPlatforms = ['linux'];
+    if (!supportedPlatforms.includes(platform.platform)) {
+      throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
+    }
+
+    const supportedArchs = ['x64', 'arm64'];
+    if (!supportedArchs.includes(platform.arch)) {
+      throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
+    }
     
     const { release, releaseTag } = await downloadRelease(octokit, version);
-    core.info(`Using Orbit agent version: ${releaseTag}`);
+    core.info(`📦 Downloaded Orbit CI binaries version: ${releaseTag}`);
     
-    const binariesDir = await setupBinaries(release, githubToken, octokit);
-    core.addPath(binariesDir);
+    const pathToCLI = await setupBinaries(release, githubToken, octokit);
+    core.addPath(pathToCLI);
     
-    const pid = await startOrbitd(binariesDir, apiToken, logFile, serverAddr);
-    core.info(`✨ Orbit agent started successfully (PID: ${pid})`);
+    const pid = await startOrbitd(pathToCLI, serverAddr);
+    core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
 
     // Run orbit event command
-    await triggerJobStart(binariesDir);
-    core.info('✨ Job start event sent successfully');
+    await triggerJobStart();
+    core.info('✅ Job start event sent successfully');
 
     core.setOutput('version', releaseTag);
-    core.setOutput('binary_path', binariesDir);
   } catch (error) {
     core.setFailed(error.message);
   }

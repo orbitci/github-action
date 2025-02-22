@@ -27555,16 +27555,13 @@ module.exports = parseParams
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
-const os = __nccwpck_require__(857);
 const core = __nccwpck_require__(7484);
 const fs = __nccwpck_require__(9896);
-const path = __nccwpck_require__(6928);
-const { exec, spawn } = __nccwpck_require__(5317);
+const { spawn } = __nccwpck_require__(5317);
 
-async function triggerJobEnd(binariesDir) {
+async function triggerJobEnd() {
   return new Promise((resolve, reject) => {
-    const orbitPath = path.join(binariesDir, 'orbit');
-    const orbit = spawn(orbitPath, ['event', 'job-end']);
+    const orbit = spawn('orbit', ['event', 'job-end']);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -27590,17 +27587,17 @@ async function triggerJobEnd(binariesDir) {
   });
 }
 
-async function showLogFileContents(logFile) {
+async function printLogFileContents(logFile) {
   try {
     if (fs.existsSync(logFile)) {
+      core.startGroup('📄 Orbit CI agent logs');
       const contents = fs.readFileSync(logFile, 'utf8');
-      core.debug('=== orbitd log contents ===');
       contents.split('\n').forEach(line => {
         if (line.trim()) {
           core.debug(line);
         }
       });
-      core.debug('=== end orbitd log ===');
+      core.endGroup();
     } else {
       core.debug(`Log file not found: ${logFile}`);
     }
@@ -27609,7 +27606,7 @@ async function showLogFileContents(logFile) {
   }
 }
 
-async function cleanup() {
+async function teardown() {
   try {
     const orbitdPid = core.getState('orbitdPid');
     if (!orbitdPid) {
@@ -27618,13 +27615,12 @@ async function cleanup() {
       core.debug(`Found Orbit daemon PID: ${orbitdPid}`);
     }
 
-    const binariesDir = path.join(__dirname, '..', '..', 'bin');
-    const logFile = core.getInput('log_file');
+    const logFile = "/var/log/orbitd.log";
     
     // Send job-end event before stopping the daemon
     try {
-      await triggerJobEnd(binariesDir);
-      core.info('✨ Job end event sent successfully');
+      await triggerJobEnd();
+      core.info('✅ Job end event sent successfully');
     } catch (error) {
       core.warning(`Failed to send job end event: ${error.message}`);
     }
@@ -27671,24 +27667,18 @@ async function cleanup() {
       }
     });
 
-    core.info('✨ Orbit agent stopped successfully');
+    core.info('✅ Orbit agent stopped successfully');
 
-    // Show final log contents
     if (core.isDebug()) {
-      core.debug('Final log contents after shutdown:');
-      await showLogFileContents(logFile);
+      await printLogFileContents(logFile);
     }
   } catch (error) {
-    core.setFailed(`Cleanup failed: ${error.message}`);
+    core.setFailed(`Teardown failed: ${error.message}`);
     process.exit(1);
   }
 }
 
-// Execute cleanup and handle any uncaught errors
-cleanup().catch(error => {
-  core.setFailed(`Uncaught error in cleanup: ${error.message}`);
-  process.exit(1);
-});
+teardown();
 module.exports = __webpack_exports__;
 /******/ })()
 ;

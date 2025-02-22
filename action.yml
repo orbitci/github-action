@@ -3,8 +3,12 @@ description: 'Sets up Orbit CI agents in your Github Actions workflow'
 author: 'Orbit CI'
 
 inputs:
-  api_token:
-    description: 'The API token to use to publish events to Orbit'
+  orbitci_server_addr:
+    description: 'The address of the Orbit CI server to connect to'
+    required: true
+
+  orbitci_api_token:
+    description: 'The API token used to publish events to Orbit CI'
     required: true
 
   github_token:
@@ -12,32 +16,18 @@ inputs:
     required: true
 
   version: 
-    description: 'The version of Orbit CLI binaries to install. Specify `latest` to install the latest stable version.'
+    description: 'The version of Orbit CI binaries to install. Specify `latest` to install the latest stable version.'
     required: false
     default: 'latest'
 
-  log_file:
-    description: 'Path to the log file for orbitd. Must be writable by sudo.'
-    required: false
-    default: '/var/log/orbitd.log'
-
-  server_addr:
-    description: 'The address of the Orbit server to connect to'
-    required: false
-    default: 'api.nonprod.eu.orbit.ci'
-
 outputs:
   version:
-    description: 'The version of the CLI that was installed'
-  binary_path:
-    description: 'The path where the CLI binaries were installed'
-  pid:
-    description: 'The process ID of the running orbitd daemon'
+    description: 'The version of the Orbit CI binaries that were installed'
 
 runs:
   using: 'node20'
   main: 'dist/setup/index.js'
-  post: 'dist/shutdown/index.js'
+  post: 'dist/teardown/index.js'
 
 permissions:
   contents: read

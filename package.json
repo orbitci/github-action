@@ -5,10 +5,10 @@
   "main": "index.js",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "npm run clean && ncc build -o dist/setup src/setup.js && ncc build -o dist/shutdown src/shutdown.js",
+    "build": "npm run clean && ncc build src/setup.js -o dist/setup && ncc build src/teardown.js -o dist/teardown",
     "prepare": "npm run build",
     "orbit:setup": "node dist/setup/index.js",
-    "orbit:shutdown": "node dist/shutdown/index.js",
+    "orbit:teardown": "node dist/teardown/index.js",
     "test": "jest",
     "lint": "eslint ."
   },
