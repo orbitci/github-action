@@ -78,7 +78,8 @@ async function setupBinaries(release, githubToken, octokit) {
 async function startOrbitd(pathToCLI, serverAddr) {
   // Use absolute paths for sudo commands to work
   const orbitdPath = path.join(pathToCLI, 'orbitd');
-  const orbitPath = path.join(pathToCLI, 'orbit');
+  const orbitUsdtPath = path.join(pathToCLI, 'orbit-usdt');
+  const logFile="/var/log/orbitd.log";
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -88,11 +89,11 @@ async function startOrbitd(pathToCLI, serverAddr) {
     const orbitd = spawn('sudo', [
       '-E',
       orbitdPath,
-      `-client-bin-path=${orbitPath}`,
+      `-usdt-bin=${orbitUsdtPath}`,
       `-server-addr=${serverAddr}`,
       '-log-level=1',
       '-debug',
-      `-log-file=/var/log/orbitd.log`
+      `-log-file=${logFile}`
     ], {
       detached: true,
       stdio: 'ignore',
@@ -132,6 +133,47 @@ async function startOrbitd(pathToCLI, serverAddr) {
   });
 }
 
+async function startUsdtServer() {
+  return new Promise((resolve, reject) => {
+    const usdtServer = spawn('orbit-usdt', ['server', 'start']);
+
+    let output = '';
+    usdtServer.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    usdtServer.stderr.on('data', (data) => {
+      core.debug(`USDT server stderr: ${data}`);
+    });
+
+    usdtServer.on('exit', (code) => {
+      if (code === 0) {
+        core.debug(`USDT server output: ${output.trim()}`);
+        // Wait a short time for the PID file to be created
+        setTimeout(() => {
+          try {
+            if (fs.existsSync('/tmp/orbit/orbit_usdt.pid')) {
+              const pid = fs.readFileSync('/tmp/orbit/orbit_usdt.pid', 'utf8').trim();
+              core.debug(`USDT server started with PID: ${pid}`);
+              resolve(pid);
+            } else {
+              reject(new Error('USDT server PID file not found after start command'));
+            }
+          } catch (error) {
+            reject(new Error(`Failed to read USDT server PID file: ${error.message}`));
+          }
+        }, 1000);
+      } else {
+        reject(new Error(`USDT server failed to start with exit code ${code}`));
+      }
+    });
+
+    usdtServer.on('error', (err) => {
+      reject(new Error(`Failed to execute USDT server start command: ${err.message}`));
+    });
+  });
+}
+
 async function triggerJobStart() {
   return new Promise((resolve, reject) => {
     const orbit = spawn('orbit', ['event', 'job-start']);
@@ -161,44 +203,44 @@ async function triggerJobStart() {
 }
 
 async function run() {
-  try {
-    const apiToken = core.getInput('orbitci_api_token', { required: true });
-    const serverAddr = core.getInput('orbitci_server_addr');
-    const version = core.getInput('version');
-    const githubToken = core.getInput('github_token', { required: true });
+  const apiToken = core.getInput('orbitci_api_token', { required: true });
+  const serverAddr = core.getInput('orbitci_server_addr');
+  const version = core.getInput('version');
+  const githubToken = core.getInput('github_token', { required: true });
 
-    // TODO: Set env variables for server address
-    core.exportVariable('ORBITCI_API_TOKEN', apiToken);
-    
-    const octokit = github.getOctokit(githubToken);
+  // TODO: Set env variables for server address
+  core.exportVariable('ORBITCI_API_TOKEN', apiToken);
+  
+  const octokit = github.getOctokit(githubToken);
 
-    const supportedPlatforms = ['linux'];
-    if (!supportedPlatforms.includes(platform.platform)) {
-      throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
-    }
-
-    const supportedArchs = ['x64', 'arm64'];
-    if (!supportedArchs.includes(platform.arch)) {
-      throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
-    }
-    
-    const { release, releaseTag } = await downloadRelease(octokit, version);
-    core.info(`📦 Downloaded Orbit CI binaries version: ${releaseTag}`);
-    
-    const pathToCLI = await setupBinaries(release, githubToken, octokit);
-    core.addPath(pathToCLI);
-    
-    const pid = await startOrbitd(pathToCLI, serverAddr);
-    core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
-
-    // Run orbit event command
-    await triggerJobStart();
-    core.info('✅ Job start event sent successfully');
-
-    core.setOutput('version', releaseTag);
-  } catch (error) {
-    core.setFailed(error.message);
+  const supportedPlatforms = ['linux'];
+  if (!supportedPlatforms.includes(platform.platform)) {
+    throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
   }
+
+  const supportedArchs = ['x64', 'arm64'];
+  if (!supportedArchs.includes(platform.arch)) {
+    throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
+  }
+  
+  const { release, releaseTag } = await downloadRelease(octokit, version);
+  core.info(`📦 Downloaded Orbit CI binaries version: ${releaseTag}`);
+  
+  const pathToCLI = await setupBinaries(release, githubToken, octokit);
+  core.addPath(pathToCLI);
+  
+  const pid = await startOrbitd(pathToCLI, serverAddr);
+  core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
+
+  const usdtPid = await startUsdtServer();
+  core.info(`✅ USDT server started successfully (PID: ${usdtPid})`);
+
+  await triggerJobStart();
+  core.info('✅ Job start event sent successfully');
+
+  core.setOutput('version', releaseTag);
 }
 
-run(); 
+run().catch(error => {
+  core.setFailed(error.message);
+}); 
