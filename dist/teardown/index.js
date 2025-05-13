@@ -8803,7 +8803,7 @@ module.exports = {
 
 
 const { parseSetCookie } = __nccwpck_require__(8915)
-const { stringify, getHeadersList } = __nccwpck_require__(3834)
+const { stringify } = __nccwpck_require__(3834)
 const { webidl } = __nccwpck_require__(4222)
 const { Headers } = __nccwpck_require__(6349)
 
@@ -8879,14 +8879,13 @@ function getSetCookies (headers) {
 
   webidl.brandCheck(headers, Headers, { strict: false })
 
-  const cookies = getHeadersList(headers).cookies
+  const cookies = headers.getSetCookie()
 
   if (!cookies) {
     return []
   }
 
-  // In older versions of undici, cookies is a list of name:value.
-  return cookies.map((pair) => parseSetCookie(Array.isArray(pair) ? pair[1] : pair))
+  return cookies.map((pair) => parseSetCookie(pair))
 }
 
 /**
@@ -9314,14 +9313,15 @@ module.exports = {
 /***/ }),
 
 /***/ 3834:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+/***/ ((module) => {
 
 "use strict";
 
 
-const assert = __nccwpck_require__(2613)
-const { kHeadersList } = __nccwpck_require__(6443)
-
+/**
+ * @param {string} value
+ * @returns {boolean}
+ */
 function isCTLExcludingHtab (value) {
   if (value.length === 0) {
     return false
@@ -9582,31 +9582,13 @@ function stringify (cookie) {
   return out.join('; ')
 }
 
-let kHeadersListNode
-
-function getHeadersList (headers) {
-  if (headers[kHeadersList]) {
-    return headers[kHeadersList]
-  }
-
-  if (!kHeadersListNode) {
-    kHeadersListNode = Object.getOwnPropertySymbols(headers).find(
-      (symbol) => symbol.description === 'headers list'
-    )
-
-    assert(kHeadersListNode, 'Headers cannot be parsed')
-  }
-
-  const headersList = headers[kHeadersListNode]
-  assert(headersList)
-
-  return headersList
-}
-
 module.exports = {
   isCTLExcludingHtab,
-  stringify,
-  getHeadersList
+  validateCookieName,
+  validateCookiePath,
+  validateCookieValue,
+  toIMFDate,
+  stringify
 }
 
 
@@ -13610,6 +13592,7 @@ const {
   isValidHeaderName,
   isValidHeaderValue
 } = __nccwpck_require__(5523)
+const util = __nccwpck_require__(9023)
 const { webidl } = __nccwpck_require__(4222)
 const assert = __nccwpck_require__(2613)
 
@@ -14163,6 +14146,9 @@ Object.defineProperties(Headers.prototype, {
   [Symbol.toStringTag]: {
     value: 'Headers',
     configurable: true
+  },
+  [util.inspect.custom]: {
+    enumerable: false
   }
 })
 
@@ -23339,6 +23325,20 @@ class Pool extends PoolBase {
       ? { ...options.interceptors }
       : undefined
     this[kFactory] = factory
+
+    this.on('connectionError', (origin, targets, error) => {
+      // If a connection error occurs, we remove the client from the pool,
+      // and emit a connectionError event. They will not be re-used.
+      // Fixes https://github.com/nodejs/undici/issues/3895
+      for (const target of targets) {
+        // Do not use kRemoveClient here, as it will close the client,
+        // but the client cannot be closed in this state.
+        const idx = this[kClients].indexOf(target)
+        if (idx !== -1) {
+          this[kClients].splice(idx, 1)
+        }
+      }
+    })
   }
 
   [kGetDispatcher] () {
@@ -27558,10 +27558,54 @@ var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const fs = __nccwpck_require__(9896);
 const { spawn } = __nccwpck_require__(5317);
+const path = __nccwpck_require__(6928);
 
-async function triggerJobEnd() {
+async function stopUsdtServer() {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit', ['event', 'job-end']);
+    // First check if the PID file exists
+    if (!fs.existsSync('/tmp/orbit/orbit_usdt.pid')) {
+      core.debug('USDT server PID file not found, server may not be running');
+      resolve();
+      return;
+    }
+
+    const usdtServer = spawn('orbit-usdt', ['server', 'stop']);
+
+    let output = '';
+    usdtServer.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    usdtServer.stderr.on('data', (data) => {
+      core.debug(`USDT server stop stderr: ${data}`);
+    });
+
+    usdtServer.on('exit', (code) => {
+      if (code === 0) {
+        core.debug(`USDT server stop output: ${output.trim()}`);
+        // Verify the PID file is removed
+        setTimeout(() => {
+          if (!fs.existsSync('/tmp/orbit/orbit_usdt.pid')) {
+            core.debug('USDT server PID file removed, server stopped successfully');
+            resolve();
+          } else {
+            reject(new Error('PID file still exists after stop command'));
+          }
+        }, 1000);
+      } else {
+        reject(new Error(`Command failed with exit code ${code}`));
+      }
+    });
+
+    usdtServer.on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+async function triggerJobEnd(jobId) {
+  return new Promise((resolve, reject) => {
+    const orbit = spawn('orbit-usdt', ['fire', 'job-end', '-job-id', jobId]);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -27608,6 +27652,7 @@ async function printLogFileContents(logFile) {
 
 async function teardown() {
   try {
+    const testMode = process.env.TEST_MODE === 'true';
     const orbitdPid = core.getState('orbitdPid');
     if (!orbitdPid) {
       core.warning('No Orbit daemon PID found');
@@ -27619,10 +27664,22 @@ async function teardown() {
     
     // Send job-end event before stopping the daemon
     try {
-      await triggerJobEnd();
+      const jobId = testMode ? 'dummy' : process.env.GITHUB_JOB;
+      if (!jobId) {
+        throw new Error('GITHUB_JOB environment variable is required when not in test mode');
+      }
+      await triggerJobEnd(jobId);
       core.info('✅ Job end event sent successfully');
     } catch (error) {
       core.warning(`Failed to send job end event: ${error.message}`);
+    }
+
+    // Stop USDT server
+    try {
+      await stopUsdtServer();
+      core.info('✅ USDT server stopped successfully');
+    } catch (error) {
+      core.warning(`Failed to stop USDT server: ${error.message}`);
     }
 
     // First try to terminate gracefully

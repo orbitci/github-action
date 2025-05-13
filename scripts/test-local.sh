@@ -8,6 +8,9 @@ export GITHUB_STATE=$(mktemp)
 # Set this for core.addPath() to work
 export GITHUB_PATH=$(mktemp)
 
+# Set job ID for local testing
+export GITHUB_JOB=dummy
+
 npm run prepare
 
 export INPUT_ORBITCI_SERVER_ADDR="${ORBITCI_SERVER_ADDR:-api.nonprod.eu.orbit.ci}"

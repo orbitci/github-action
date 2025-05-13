@@ -1882,6 +1882,7 @@ class Context {
         this.action = process.env.GITHUB_ACTION;
         this.actor = process.env.GITHUB_ACTOR;
         this.job = process.env.GITHUB_JOB;
+        this.runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10);
         this.runNumber = parseInt(process.env.GITHUB_RUN_NUMBER, 10);
         this.runId = parseInt(process.env.GITHUB_RUN_ID, 10);
         this.apiUrl = (_a = process.env.GITHUB_API_URL) !== null && _a !== void 0 ? _a : `https://api.github.com`;
@@ -4460,11 +4461,11 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
+var index_exports = {};
+__export(index_exports, {
   Octokit: () => Octokit
 });
-module.exports = __toCommonJS(dist_src_exports);
+module.exports = __toCommonJS(index_exports);
 var import_universal_user_agent = __nccwpck_require__(3843);
 var import_before_after_hook = __nccwpck_require__(2732);
 var import_request = __nccwpck_require__(8636);
@@ -4472,7 +4473,7 @@ var import_graphql = __nccwpck_require__(7);
 var import_auth_token = __nccwpck_require__(7864);
 
 // pkg/dist-src/version.js
-var VERSION = "5.2.0";
+var VERSION = "5.2.1";
 
 // pkg/dist-src/index.js
 var noop = () => {
@@ -5013,18 +5014,18 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
+var index_exports = {};
+__export(index_exports, {
   GraphqlResponseError: () => GraphqlResponseError,
   graphql: () => graphql2,
   withCustomRequest: () => withCustomRequest
 });
-module.exports = __toCommonJS(dist_src_exports);
+module.exports = __toCommonJS(index_exports);
 var import_request3 = __nccwpck_require__(8636);
 var import_universal_user_agent = __nccwpck_require__(3843);
 
 // pkg/dist-src/version.js
-var VERSION = "7.1.0";
+var VERSION = "7.1.1";
 
 // pkg/dist-src/with-defaults.js
 var import_request2 = __nccwpck_require__(8636);
@@ -5072,8 +5073,7 @@ function graphql(request2, query, options) {
       );
     }
     for (const key in options) {
-      if (!FORBIDDEN_VARIABLE_OPTIONS.includes(key))
-        continue;
+      if (!FORBIDDEN_VARIABLE_OPTIONS.includes(key)) continue;
       return Promise.reject(
         new Error(
           `[@octokit/graphql] "${key}" cannot be used as variable name`
@@ -15562,7 +15562,7 @@ module.exports = {
 
 
 const { parseSetCookie } = __nccwpck_require__(8915)
-const { stringify, getHeadersList } = __nccwpck_require__(3834)
+const { stringify } = __nccwpck_require__(3834)
 const { webidl } = __nccwpck_require__(4222)
 const { Headers } = __nccwpck_require__(6349)
 
@@ -15638,14 +15638,13 @@ function getSetCookies (headers) {
 
   webidl.brandCheck(headers, Headers, { strict: false })
 
-  const cookies = getHeadersList(headers).cookies
+  const cookies = headers.getSetCookie()
 
   if (!cookies) {
     return []
   }
 
-  // In older versions of undici, cookies is a list of name:value.
-  return cookies.map((pair) => parseSetCookie(Array.isArray(pair) ? pair[1] : pair))
+  return cookies.map((pair) => parseSetCookie(pair))
 }
 
 /**
@@ -16073,14 +16072,15 @@ module.exports = {
 /***/ }),
 
 /***/ 3834:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+/***/ ((module) => {
 
 "use strict";
 
 
-const assert = __nccwpck_require__(2613)
-const { kHeadersList } = __nccwpck_require__(6443)
-
+/**
+ * @param {string} value
+ * @returns {boolean}
+ */
 function isCTLExcludingHtab (value) {
   if (value.length === 0) {
     return false
@@ -16341,31 +16341,13 @@ function stringify (cookie) {
   return out.join('; ')
 }
 
-let kHeadersListNode
-
-function getHeadersList (headers) {
-  if (headers[kHeadersList]) {
-    return headers[kHeadersList]
-  }
-
-  if (!kHeadersListNode) {
-    kHeadersListNode = Object.getOwnPropertySymbols(headers).find(
-      (symbol) => symbol.description === 'headers list'
-    )
-
-    assert(kHeadersListNode, 'Headers cannot be parsed')
-  }
-
-  const headersList = headers[kHeadersListNode]
-  assert(headersList)
-
-  return headersList
-}
-
 module.exports = {
   isCTLExcludingHtab,
-  stringify,
-  getHeadersList
+  validateCookieName,
+  validateCookiePath,
+  validateCookieValue,
+  toIMFDate,
+  stringify
 }
 
 
@@ -20369,6 +20351,7 @@ const {
   isValidHeaderName,
   isValidHeaderValue
 } = __nccwpck_require__(5523)
+const util = __nccwpck_require__(9023)
 const { webidl } = __nccwpck_require__(4222)
 const assert = __nccwpck_require__(2613)
 
@@ -20922,6 +20905,9 @@ Object.defineProperties(Headers.prototype, {
   [Symbol.toStringTag]: {
     value: 'Headers',
     configurable: true
+  },
+  [util.inspect.custom]: {
+    enumerable: false
   }
 })
 
@@ -30098,6 +30084,20 @@ class Pool extends PoolBase {
       ? { ...options.interceptors }
       : undefined
     this[kFactory] = factory
+
+    this.on('connectionError', (origin, targets, error) => {
+      // If a connection error occurs, we remove the client from the pool,
+      // and emit a connectionError event. They will not be re-used.
+      // Fixes https://github.com/nodejs/undici/issues/3895
+      for (const target of targets) {
+        // Do not use kRemoveClient here, as it will close the client,
+        // but the client cannot be closed in this state.
+        const idx = this[kClients].indexOf(target)
+        if (idx !== -1) {
+          this[kClients].splice(idx, 1)
+        }
+      }
+    })
   }
 
   [kGetDispatcher] () {
@@ -34460,7 +34460,8 @@ async function setupBinaries(release, githubToken, octokit) {
 async function startOrbitd(pathToCLI, serverAddr) {
   // Use absolute paths for sudo commands to work
   const orbitdPath = path.join(pathToCLI, 'orbitd');
-  const orbitPath = path.join(pathToCLI, 'orbit');
+  const orbitUsdtPath = path.join(pathToCLI, 'orbit-usdt');
+  const logFile="/var/log/orbitd.log";
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -34470,11 +34471,11 @@ async function startOrbitd(pathToCLI, serverAddr) {
     const orbitd = spawn('sudo', [
       '-E',
       orbitdPath,
-      `-client-bin-path=${orbitPath}`,
-      `-server-addr=${serverAddr}`,
-      '-log-level=1',
+      `-usdt-bin=${orbitUsdtPath}`,
+      `-api-address=${serverAddr}`,
+      '-bpf-loglevel=1',
       '-debug',
-      `-log-file=/var/log/orbitd.log`
+      `-logfile=${logFile}`
     ], {
       detached: true,
       stdio: 'ignore',
@@ -34514,9 +34515,54 @@ async function startOrbitd(pathToCLI, serverAddr) {
   });
 }
 
-async function triggerJobStart() {
+async function startUsdtServer() {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit', ['event', 'job-start']);
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout waiting for USDT server to start'));
+    }, 5000);
+
+    const usdtServer = spawn('orbit-usdt', ['server', 'start'], {
+      detached: true,
+      stdio: 'ignore',
+      shell: false
+    });
+
+    usdtServer.on('error', (err) => {
+      core.debug(`USDT server error: ${err.message}`);
+      clearTimeout(timeout);
+      reject(new Error(`Failed to start USDT server: ${err.message}`));
+    });
+
+    usdtServer.on('spawn', async () => {
+      core.debug('USDT server spawned');
+      clearTimeout(timeout);
+      
+      core.saveState('usdtServerPid', usdtServer.pid.toString());
+      usdtServer.unref();  // Allows parent to exit independently
+      
+      // Wait additional 2 seconds for the process to be ready
+      core.debug('Waiting 2 seconds for USDT server to be ready...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      core.debug('USDT server ready wait completed');
+        
+      resolve(usdtServer.pid.toString());
+    });
+
+    usdtServer.on('exit', (code, signal) => {
+      core.debug(`USDT server exited with code ${code} and signal ${signal}`);
+      clearTimeout(timeout);
+      if (code !== null) {
+        reject(new Error(`USDT server exited with code ${code}`));
+      } else if (signal !== null) {
+        reject(new Error(`USDT server was terminated by signal ${signal}`));
+      }
+    });
+  });
+}
+
+async function triggerJobStart(jobId) {
+  return new Promise((resolve, reject) => {
+    const orbit = spawn('orbit-usdt', ['fire', 'job-start', '-job-id', jobId]);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -34543,47 +34589,53 @@ async function triggerJobStart() {
 }
 
 async function run() {
-  try {
-    const apiToken = core.getInput('orbitci_api_token', { required: true });
-    const serverAddr = core.getInput('orbitci_server_addr');
-    const version = core.getInput('version');
-    const githubToken = core.getInput('github_token', { required: true });
+  const testMode = process.env.TEST_MODE === 'true';
+  const apiToken = core.getInput('orbitci_api_token', { required: true });
+  const serverAddr = core.getInput('orbitci_server_addr');
+  const version = core.getInput('version');
+  const githubToken = core.getInput('github_token', { required: true });
 
-    // TODO: Set env variables for server address
-    core.exportVariable('ORBITCI_API_TOKEN', apiToken);
-    
-    const octokit = github.getOctokit(githubToken);
+  // TODO: Set env variables for server address
+  core.exportVariable('ORBITCI_API_TOKEN', apiToken);
+  
+  const octokit = github.getOctokit(githubToken);
 
-    const supportedPlatforms = ['linux'];
-    if (!supportedPlatforms.includes(platform.platform)) {
-      throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
-    }
-
-    const supportedArchs = ['x64', 'arm64'];
-    if (!supportedArchs.includes(platform.arch)) {
-      throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
-    }
-    
-    const { release, releaseTag } = await downloadRelease(octokit, version);
-    core.info(`📦 Downloaded Orbit CI binaries version: ${releaseTag}`);
-    
-    const pathToCLI = await setupBinaries(release, githubToken, octokit);
-    core.addPath(pathToCLI);
-    
-    const pid = await startOrbitd(pathToCLI, serverAddr);
-    core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
-
-    // Run orbit event command
-    await triggerJobStart();
-    core.info('✅ Job start event sent successfully');
-
-    core.setOutput('version', releaseTag);
-  } catch (error) {
-    core.setFailed(error.message);
+  const supportedPlatforms = ['linux'];
+  if (!supportedPlatforms.includes(platform.platform)) {
+    throw new Error(`Platform ${platform.platform} is not supported. Currently, this action only supports: ${supportedPlatforms.join(', ')}`);
   }
+
+  const supportedArchs = ['x64', 'arm64'];
+  if (!supportedArchs.includes(platform.arch)) {
+    throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
+  }
+  
+  const { release, releaseTag } = await downloadRelease(octokit, version);
+  core.info(`📦 Downloaded Orbit CI binaries version: ${releaseTag}`);
+  
+  const pathToCLI = await setupBinaries(release, githubToken, octokit);
+  core.addPath(pathToCLI);
+  
+  const pid = await startOrbitd(pathToCLI, serverAddr);
+  core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
+
+  const usdtPid = await startUsdtServer();
+  core.info(`✅ Orbit USDT server started successfully (PID: ${usdtPid})`);
+
+  const jobId = testMode ? 'dummy' : process.env.GITHUB_JOB;
+  if (!jobId) {
+    throw new Error('GITHUB_JOB environment variable is required when not in test mode');
+  }
+  await triggerJobStart(jobId);
+  core.info('✅ Job start event sent successfully');
+
+  core.setOutput('version', releaseTag);
 }
 
-run(); 
+run().catch(error => {
+  core.setFailed(error.message);
+}); 
+
 module.exports = __webpack_exports__;
 /******/ })()
 ;

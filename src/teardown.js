@@ -46,9 +46,9 @@ async function stopUsdtServer() {
   });
 }
 
-async function triggerJobEnd() {
+async function triggerJobEnd(jobId) {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit', ['event', 'job-end']);
+    const orbit = spawn('orbit-usdt', ['fire', 'job-end', '-job-id', jobId]);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -106,7 +106,11 @@ async function teardown() {
     
     // Send job-end event before stopping the daemon
     try {
-      await triggerJobEnd();
+      const jobId = process.env.GITHUB_JOB;
+      if (!jobId) {
+        throw new Error('GITHUB_JOB environment variable is required');
+      }
+      await triggerJobEnd(jobId);
       core.info('✅ Job end event sent successfully');
     } catch (error) {
       core.warning(`Failed to send job end event: ${error.message}`);

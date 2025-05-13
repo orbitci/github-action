@@ -90,10 +90,10 @@ async function startOrbitd(pathToCLI, serverAddr) {
       '-E',
       orbitdPath,
       `-usdt-bin=${orbitUsdtPath}`,
-      `-server-addr=${serverAddr}`,
-      '-log-level=1',
+      `-api-address=${serverAddr}`,
+      '-bpf-loglevel=1',
       '-debug',
-      `-log-file=${logFile}`
+      `-logfile=${logFile}`
     ], {
       detached: true,
       stdio: 'ignore',
@@ -135,48 +135,52 @@ async function startOrbitd(pathToCLI, serverAddr) {
 
 async function startUsdtServer() {
   return new Promise((resolve, reject) => {
-    const usdtServer = spawn('orbit-usdt', ['server', 'start']);
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout waiting for USDT server to start'));
+    }, 5000);
 
-    let output = '';
-    usdtServer.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    usdtServer.stderr.on('data', (data) => {
-      core.debug(`USDT server stderr: ${data}`);
-    });
-
-    usdtServer.on('exit', (code) => {
-      if (code === 0) {
-        core.debug(`USDT server output: ${output.trim()}`);
-        // Wait a short time for the PID file to be created
-        setTimeout(() => {
-          try {
-            if (fs.existsSync('/tmp/orbit/orbit_usdt.pid')) {
-              const pid = fs.readFileSync('/tmp/orbit/orbit_usdt.pid', 'utf8').trim();
-              core.debug(`USDT server started with PID: ${pid}`);
-              resolve(pid);
-            } else {
-              reject(new Error('USDT server PID file not found after start command'));
-            }
-          } catch (error) {
-            reject(new Error(`Failed to read USDT server PID file: ${error.message}`));
-          }
-        }, 1000);
-      } else {
-        reject(new Error(`USDT server failed to start with exit code ${code}`));
-      }
+    const usdtServer = spawn('orbit-usdt', ['server', 'start'], {
+      detached: true,
+      stdio: 'ignore',
+      shell: false
     });
 
     usdtServer.on('error', (err) => {
-      reject(new Error(`Failed to execute USDT server start command: ${err.message}`));
+      core.debug(`USDT server error: ${err.message}`);
+      clearTimeout(timeout);
+      reject(new Error(`Failed to start USDT server: ${err.message}`));
+    });
+
+    usdtServer.on('spawn', async () => {
+      core.debug('USDT server spawned');
+      clearTimeout(timeout);
+      
+      core.saveState('usdtServerPid', usdtServer.pid.toString());
+      usdtServer.unref();  // Allows parent to exit independently
+      
+      // Wait additional 2 seconds for the process to be ready
+      core.debug('Waiting 2 seconds for USDT server to be ready...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      core.debug('USDT server ready wait completed');
+        
+      resolve(usdtServer.pid.toString());
+    });
+
+    usdtServer.on('exit', (code, signal) => {
+      core.debug(`USDT server exited with code ${code} and signal ${signal}`);
+      clearTimeout(timeout);
+      if (code !== null) {
+        reject(new Error(`USDT server exited with code ${code}`));
+      } else if (signal !== null) {
+        reject(new Error(`USDT server was terminated by signal ${signal}`));
+      }
     });
   });
 }
 
-async function triggerJobStart() {
+async function triggerJobStart(jobId) {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit', ['event', 'job-start']);
+    const orbit = spawn('orbit-usdt', ['fire', 'job-start', '-job-id', jobId]);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -233,9 +237,13 @@ async function run() {
   core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
 
   const usdtPid = await startUsdtServer();
-  core.info(`✅ USDT server started successfully (PID: ${usdtPid})`);
+  core.info(`✅ Orbit USDT server started successfully (PID: ${usdtPid})`);
 
-  await triggerJobStart();
+  const jobId = process.env.GITHUB_JOB;
+  if (!jobId) {
+    throw new Error('GITHUB_JOB environment variable is required');
+  }
+  await triggerJobStart(jobId);
   core.info('✅ Job start event sent successfully');
 
   core.setOutput('version', releaseTag);
