@@ -34593,6 +34593,10 @@ async function run() {
   const serverAddr = core.getInput('orbitci_server_addr');
   const version = core.getInput('version');
   const githubToken = process.env.GITHUB_TOKEN;
+  if (!githubToken) {
+    core.setFailed("GITHUB_TOKEN is not set in the environment.");
+    return;
+  }
 
   // TODO: Set env variables for server address
   core.exportVariable('ORBITCI_API_TOKEN', apiToken);
