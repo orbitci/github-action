@@ -11,10 +11,6 @@ inputs:
     description: 'The API token used to publish events to Orbit CI'
     required: true
 
-  github_token:
-    description: 'GitHub token with access to download releases from the organization repositories'
-    required: true
-
   version: 
     description: 'The version of Orbit CI binaries to install. Specify `latest` to install the latest stable version.'
     required: false

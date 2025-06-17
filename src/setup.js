@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ORBITCI_ORG = "orbitci";
-const ORBITCI_AGENT_REPO = "orbit-ebpf";
+const ORBITCI_AGENT_REPO = "orbit-agent-releases";
 
 async function downloadRelease(octokit, version) {
   let releaseTag = version;
@@ -34,16 +34,16 @@ async function downloadRelease(octokit, version) {
 async function setupBinaries(release, githubToken, octokit) {
   const version = release.data.tag_name;
   const assetName = `orbit-${version}-github-${platform.platform}-${platform.arch}.tar.gz`;
-  
+
   core.debug(`Looking for asset: ${assetName}`);
-  
+
   const asset = release.data.assets.find(a => a.name === assetName);
   if (!asset) {
     throw new Error(`Required asset not found: ${assetName}`);
   }
 
   core.debug(`Processing ${assetName}...`);
-  
+
   const assetData = await octokit.rest.repos.getReleaseAsset({
     owner: ORBITCI_ORG,
     repo: ORBITCI_AGENT_REPO,
@@ -52,7 +52,7 @@ async function setupBinaries(release, githubToken, octokit) {
       Accept: 'application/octet-stream'
     }
   });
-  
+
   const downloadPath = await tc.downloadTool(
     assetData.url,
     undefined,
@@ -61,7 +61,7 @@ async function setupBinaries(release, githubToken, octokit) {
       'Accept': 'application/octet-stream'
     }
   );
-  
+
   const pathToCLI = await tc.extractTar(downloadPath, undefined, ['xz', '--strip-components=1']);
   core.debug(`Orbit CLI path: ${pathToCLI}`);
 
@@ -109,15 +109,15 @@ async function startOrbitd(pathToCLI, serverAddr) {
     orbitd.on('spawn', async () => {
       core.debug('orbitd spawned');
       clearTimeout(timeout);
-      
+
       core.saveState('orbitdPid', orbitd.pid.toString());
       orbitd.unref();  // Allows parent to exit independently
-      
+
       // Wait additional 5 seconds for the process to be ready
       core.debug('Waiting 5 seconds for orbitd to be ready...');
       await new Promise(resolve => setTimeout(resolve, 5000));
       core.debug('Ready wait completed');
-        
+
       resolve(orbitd.pid.toString());
     });
 
@@ -154,15 +154,15 @@ async function startUsdtServer() {
     usdtServer.on('spawn', async () => {
       core.debug('USDT server spawned');
       clearTimeout(timeout);
-      
+
       core.saveState('usdtServerPid', usdtServer.pid.toString());
       usdtServer.unref();  // Allows parent to exit independently
-      
+
       // Wait additional 2 seconds for the process to be ready
       core.debug('Waiting 2 seconds for USDT server to be ready...');
       await new Promise(resolve => setTimeout(resolve, 2000));
       core.debug('USDT server ready wait completed');
-        
+
       resolve(usdtServer.pid.toString());
     });
 
@@ -210,11 +210,11 @@ async function run() {
   const apiToken = core.getInput('orbitci_api_token', { required: true });
   const serverAddr = core.getInput('orbitci_server_addr');
   const version = core.getInput('version');
-  const githubToken = core.getInput('github_token', { required: true });
+  const githubToken = process.env.GITHUB_TOKEN;
 
   // TODO: Set env variables for server address
   core.exportVariable('ORBITCI_API_TOKEN', apiToken);
-  
+
   const octokit = github.getOctokit(githubToken);
 
   const supportedPlatforms = ['linux'];
@@ -226,13 +226,13 @@ async function run() {
   if (!supportedArchs.includes(platform.arch)) {
     throw new Error(`Architecture ${platform.arch} is not supported. Currently, this action only supports: ${supportedArchs.join(', ')}`);
   }
-  
+
   const { release, releaseTag } = await downloadRelease(octokit, version);
   core.info(`📦 Downloaded Orbit CI binaries version: ${releaseTag}`);
-  
+
   const pathToCLI = await setupBinaries(release, githubToken, octokit);
   core.addPath(pathToCLI);
-  
+
   const pid = await startOrbitd(pathToCLI, serverAddr);
   core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
 
