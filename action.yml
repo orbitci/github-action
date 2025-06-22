@@ -5,7 +5,8 @@ author: 'Orbit CI'
 inputs:
   orbitci_server_addr:
     description: 'The address of the Orbit CI server to connect to'
-    required: true
+    required: false
+    default: 'api.us.orbit.ci'
 
   orbitci_api_token:
     description: 'The API token used to publish events to Orbit CI'
