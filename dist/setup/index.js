@@ -34383,13 +34383,15 @@ var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const tc = __nccwpck_require__(3472);
-const { spawn } = __nccwpck_require__(5317);
+const { spawn, execSync } = __nccwpck_require__(5317);
 const { platform } = __nccwpck_require__(7484);
 const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
 
 const ORBITCI_ORG = "orbitci";
 const ORBITCI_AGENT_REPO = "orbit-agent-releases";
+const RUNNER_DIR = "/home/runner";
+const LOG_REGEX = "Worker_*.log";
 
 async function downloadRelease(octokit, version) {
   let releaseTag = version;
@@ -34479,7 +34481,7 @@ async function startOrbitd(pathToCLI, serverAddr) {
     ], {
       detached: true,
       stdio: 'ignore',
-      shell: false
+      shell: false,
     });
 
     orbitd.on('error', (err) => {
@@ -34524,7 +34526,7 @@ async function startUsdtServer() {
     const usdtServer = spawn('orbit-usdt', ['server', 'start'], {
       detached: true,
       stdio: 'ignore',
-      shell: false
+      shell: false,
     });
 
     usdtServer.on('error', (err) => {
@@ -34588,6 +34590,95 @@ async function triggerJobStart(jobId) {
   });
 }
 
+// Extracts the jobDisplayName from the Runner.Worker's log file.
+// The log file contains the job message JSON payload received by the worker
+// Currently we have an awful regex to extract the value just to keep things
+// fast. It might be better to parse as JSON and extract other metadata
+// (e.g. needs dependency) from the message payload.
+async function parseJobDisplayName() {
+  const command = `find ${RUNNER_DIR} -name "${LOG_REGEX}" -type f 2>/dev/null \\
+  -exec grep -h '"jobDisplayName":' {} \\; | \\
+  sed -n 's/.*"jobDisplayName"[[:space:]]*:[[:space:]]*"\\([^"\\\\]*\\(\\\\.[^"\\\\]*\\)*\\)".*/\\1/p' | \\
+  sed 's/\\\\"/"/g'`;
+
+  try {
+    const output = execSync(command, { encoding: 'utf8' }).trim();
+    return output;
+  } catch (error) {
+    core.debug(`parseJobDisplayName command failed: ${error.message}`);
+    throw error;
+  }
+}
+
+async function getWorkflowRunJobs(octokit) {
+  try {
+    const owner = github.context.repo.owner;
+    const repo = github.context.repo.repo;
+    const runId = github.context.runId;
+
+    const response = await octokit.rest.actions.listJobsForWorkflowRun({
+      owner: owner,
+      repo: repo,
+      run_id: runId
+    });
+    return response.data.jobs;
+  } catch (error) {
+    core.debug(`Failed to get workflow run jobs: ${error.message}`);
+    throw error;
+  }
+}
+
+// Fetches all jobs for the workflow run and extracts the job id matching
+// the currrently running job. This job id is the value returned by the
+// Github REST API.
+async function findJobIdByName(octokit, jobDisplayName) {
+  try {
+    const jobs = await getWorkflowRunJobs(octokit);
+
+    for (const job of jobs) {
+      // This check should handle matrix jobs and reusable workflows job
+      // and account for the right job id
+      if (job.name === jobDisplayName) {
+        return job.id.toString();
+      }
+    }
+
+    core.warning(`No job found with display name: ${jobDisplayName}`);
+    return null;
+  } catch (error) {
+    core.debug(`Failed to find job ID by name: ${error.message}`);
+    throw error;
+  }
+}
+
+// Sets a new environment variable ORBITCI_JOB_ID which is the job id
+// (value returned by the API and in webhook events payload).
+// If the job id cannot be determined, the value of jobs.<job_id> is
+// used as a fallback
+async function setJobIDEnvvar(octokit) {
+  let orbJobId = process.env.GITHUB_JOB; // fallback value
+  try {
+    const jobDisplayName = await parseJobDisplayName();
+    if (jobDisplayName && jobDisplayName.length > 0) {
+      const jobId = await findJobIdByName(octokit, jobDisplayName);
+      if (jobId) {
+        orbJobId = jobId;
+      } else {
+        core.warning('Could not find job ID for display name, using GITHUB_JOB as fallback');
+      }
+    } else {
+      core.warning('parseJobDisplayName returned empty output, using GITHUB_JOB as fallback');
+    }
+  } catch (error) {
+    core.warning(`Failed to get job ID: ${error.message}. Using GITHUB_JOB as fallback`);
+  }
+  // core.exportVariable sets the env var for the subsequent steps in the workflow
+  core.exportVariable('ORBITCI_JOB_ID', orbJobId);
+
+  // set env var for current step so that it is included for Orbit agent setep processes
+  process.env.ORBITCI_JOB_ID = orbJobId;
+}
+
 async function run() {
   const apiToken = core.getInput('orbitci_api_token', { required: true });
   const serverAddr = core.getInput('orbitci_server_addr');
@@ -34602,6 +34693,9 @@ async function run() {
   core.exportVariable('ORBITCI_API_TOKEN', apiToken);
 
   const octokit = github.getOctokit(githubToken);
+
+  await setJobIDEnvvar(octokit);
+  core.debug(`environment variable ORBITCI_JOB_ID set to: ${process.env.ORBITCI_JOB_ID}`);
 
   const supportedPlatforms = ['linux'];
   if (!supportedPlatforms.includes(platform.platform)) {
