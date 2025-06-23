@@ -15,6 +15,16 @@ A GitHub Action that sets up and manages Orbit CI agent in your GitHub Actions w
     version: 'latest'
 ```
 
+## Permission
+
+This action needs permission to the Actions API. The following permission must be set 
+in the caller's workflow file - 
+
+```yaml
+permissions:
+  actions: read
+```
+
 ## Inputs
 
 | Input | Description | Required | Default |

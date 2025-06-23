@@ -27,4 +27,4 @@ runs:
   post: 'dist/teardown/index.js'
 
 permissions:
-  contents: read
+  actions: read
