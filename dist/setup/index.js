@@ -34695,6 +34695,7 @@ async function run() {
   const octokit = github.getOctokit(githubToken);
 
   await setJobIDEnvvar(octokit);
+  core.debug(`environment variable ORBITCI_JOB_ID set to: ${process.env.ORBITCI_JOB_ID}`);
 
   const supportedPlatforms = ['linux'];
   if (!supportedPlatforms.includes(platform.platform)) {
