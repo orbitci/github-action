@@ -99,7 +99,11 @@ async function startOrbitd(pathToCLI, serverAddr) {
     ], {
       detached: true,
       stdio: 'ignore',
-      shell: false
+      shell: false,
+      env: {
+        ...process.env,
+        ORBITCI_JOB_ID: process.env.ORBITCI_JOB_ID
+      }
     });
 
     orbitd.on('error', (err) => {
@@ -144,7 +148,11 @@ async function startUsdtServer() {
     const usdtServer = spawn('orbit-usdt', ['server', 'start'], {
       detached: true,
       stdio: 'ignore',
-      shell: false
+      shell: false,
+      env: {
+        ...process.env,
+        ORBITCI_JOB_ID: process.env.ORBITCI_JOB_ID
+      }
     });
 
     usdtServer.on('error', (err) => {
@@ -182,7 +190,12 @@ async function startUsdtServer() {
 
 async function triggerJobStart(jobId) {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit-usdt', ['fire', 'job-start', '-job-id', jobId]);
+    const orbit = spawn('orbit-usdt', ['fire', 'job-start', '-job-id', jobId], {
+      env: {
+        ...process.env,
+        ORBITCI_JOB_ID: process.env.ORBITCI_JOB_ID
+      }
+    });
 
     let output = '';
     orbit.stdout.on('data', (data) => {
