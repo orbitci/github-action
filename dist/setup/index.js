@@ -34672,7 +34672,11 @@ async function setJobIDEnvvar(octokit) {
   } catch (error) {
     core.warning(`Failed to get job ID: ${error.message}. Using GITHUB_JOB as fallback`);
   }
+  // core.exportVariable sets the env var for the subsequent steps in the workflow
   core.exportVariable('ORBITCI_JOB_ID', orbJobId);
+
+  // set env var for current step so that it is included for Orbit agent setep processes
+  process.env.ORBITCI_JOB_ID = orbJobId;
 }
 
 async function run() {
