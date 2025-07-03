@@ -13,9 +13,9 @@ inputs:
     required: true
 
   version: 
-    description: 'The version of Orbit CI binaries to install. Specify `latest` to install the latest stable version.'
+    description: 'The version of Orbit CI binaries to install.'
     required: false
-    default: 'latest'
+    default: 'v0.8.9'
 
 outputs:
   version:
