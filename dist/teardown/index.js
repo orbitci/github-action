@@ -27603,9 +27603,15 @@ async function stopUsdtServer() {
   });
 }
 
-async function triggerJobEnd(jobId) {
+async function triggerJobEnd(jobId, serverAddr, apiToken) {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit-usdt', ['fire', 'job-end', '-job-id', jobId]);
+    const orbit = spawn('orbit-usdt', [
+      'fire', 
+      'job-end', 
+      `-job-id=${jobId}`,
+      `-api-address=${serverAddr}`,
+      `-api-token=${apiToken}`,
+    ]);
 
     let output = '';
     orbit.stdout.on('data', (data) => {
@@ -27652,6 +27658,9 @@ async function printLogFileContents(logFile) {
 
 async function teardown() {
   try {
+    const serverAddr = core.getInput('orbitci_server_addr');
+    const apiToken = core.getInput('orbitci_api_token');
+
     const orbitdPid = core.getState('orbitdPid');
     if (!orbitdPid) {
       core.warning('No Orbit daemon PID found');
@@ -27660,14 +27669,14 @@ async function teardown() {
     }
 
     const logFile = "/var/log/orbitd.log";
-    
+
     // Send job-end event before stopping the daemon
     try {
       const jobId = process.env.GITHUB_JOB;
       if (!jobId) {
         throw new Error('GITHUB_JOB environment variable is required');
       }
-      await triggerJobEnd(jobId);
+      await triggerJobEnd(jobId, serverAddr, apiToken);
       core.info('✅ Job end event sent successfully');
     } catch (error) {
       core.warning(`Failed to send job end event: ${error.message}`);
@@ -27686,7 +27695,7 @@ async function teardown() {
       try {
         process.kill(orbitdPid, 'SIGTERM');
         core.info(`Sent SIGTERM to process ${orbitdPid}`);
-        
+
         // Give the process some time to shutdown gracefully
         const timeout = setTimeout(() => {
           try {
@@ -27735,6 +27744,7 @@ async function teardown() {
 }
 
 teardown();
+
 module.exports = __webpack_exports__;
 /******/ })()
 ;
