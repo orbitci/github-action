@@ -77,7 +77,7 @@ async function setupBinaries(release, githubToken, octokit) {
   return pathToCLI;
 }
 
-async function startOrbitd(pathToCLI, serverAddr) {
+async function startOrbitd(pathToCLI, serverAddr, apiToken) {
   // Use absolute paths for sudo commands to work
   const orbitdPath = path.join(pathToCLI, 'orbitd');
   const orbitUsdtPath = path.join(pathToCLI, 'orbit-usdt');
@@ -93,6 +93,7 @@ async function startOrbitd(pathToCLI, serverAddr) {
       orbitdPath,
       `-usdt-bin=${orbitUsdtPath}`,
       `-api-address=${serverAddr}`,
+      `-api-token=${apiToken}`,
       '-bpf-loglevel=1',
       '-debug',
       `-logfile=${logFile}`
@@ -307,9 +308,6 @@ async function run() {
     return;
   }
 
-  // TODO: Set env variables for server address
-  core.exportVariable('ORBITCI_API_TOKEN', apiToken);
-
   const octokit = github.getOctokit(githubToken);
 
   await setJobIDEnvvar(octokit);
@@ -331,7 +329,7 @@ async function run() {
   const pathToCLI = await setupBinaries(release, githubToken, octokit);
   core.addPath(pathToCLI);
 
-  const pid = await startOrbitd(pathToCLI, serverAddr);
+  const pid = await startOrbitd(pathToCLI, serverAddr, apiToken);
   core.info(`✅ Orbit CI agent started successfully (PID: ${pid})`);
 
   const usdtPid = await startUsdtServer();
