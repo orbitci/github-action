@@ -95,6 +95,7 @@ async function startOrbitd(pathToCLI, serverAddr, apiToken) {
       `-api-address=${serverAddr}`,
       `-api-token=${apiToken}`,
       '-bpf-loglevel=1',
+      '-ci-provider=github',
       '-debug',
       `-logfile=${logFile}`
     ], {
