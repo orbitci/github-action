@@ -303,6 +303,7 @@ async function run() {
   const apiToken = core.getInput('orbitci_api_token', { required: true });
   const serverAddr = core.getInput('orbitci_server_addr');
   const version = core.getInput('version');
+  const envAllowlist = core.getInput('env_allowlist');
   const githubToken = process.env.GITHUB_TOKEN;
   if (!githubToken) {
     core.setFailed("GITHUB_TOKEN is not set in the environment.");
@@ -313,6 +314,8 @@ async function run() {
 
   await setJobIDEnvvar(octokit);
   core.debug(`environment variable ORBITCI_JOB_ID set to: ${process.env.ORBITCI_JOB_ID}`);
+
+  core.exportVariable('ORBITCI_ENV_ALLOWLIST', envAllowlist);
 
   const supportedPlatforms = ['linux'];
   if (!supportedPlatforms.includes(platform.platform)) {

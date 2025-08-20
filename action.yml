@@ -15,7 +15,12 @@ inputs:
   version: 
     description: 'The version of Orbit CI binaries to install.'
     required: false
-    default: 'v0.9.9'
+    default: 'v0.10.0'
+
+  env_allowlist:
+    description: 'List of allowed user defined environment variables'
+    required: false
+    default: ''
 
 outputs:
   version:
