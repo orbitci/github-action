@@ -18,7 +18,9 @@ inputs:
     default: 'v0.10.0'
 
   env_allowlist:
-    description: 'List of allowed user defined environment variables'
+    description: |
+      Comma-separated list of user-defined environment variables to capture and include in telemetry.
+      Each env var name must begin with `ORBITCI_USER_`. E.g. `ORBITCI_USER_CI_STAGE,ORBITCI_USER_PIPELINE_VERSION`
     required: false
     default: ''
 
