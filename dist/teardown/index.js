@@ -27656,41 +27656,38 @@ async function printLogFileContents(logFile) {
   }
 }
 
-async function teardown() {
+async function run() {
+  const serverAddr = core.getInput('orbitci_server_addr');
+  const apiToken = core.getInput('orbitci_api_token');
+
+  const logFile = "/var/log/orbitd.log";
+
+  // Send job-end event before stopping the daemon
   try {
-    const serverAddr = core.getInput('orbitci_server_addr');
-    const apiToken = core.getInput('orbitci_api_token');
-
-    const orbitdPid = core.getState('orbitdPid');
-    if (!orbitdPid) {
-      core.warning('No Orbit daemon PID found');
-    } else {
-      core.debug(`Found Orbit daemon PID: ${orbitdPid}`);
+    const jobId = process.env.GITHUB_JOB;
+    if (!jobId) {
+      throw new Error('GITHUB_JOB environment variable is required');
     }
+    await triggerJobEnd(jobId, serverAddr, apiToken);
+    core.info('✅ Job end event sent successfully');
+  } catch (error) {
+    core.warning(`Failed to send job end event: ${error.message}`);
+  }
 
-    const logFile = "/var/log/orbitd.log";
+  // Stop USDT server
+  try {
+    await stopUsdtServer();
+    core.info('✅ USDT server stopped successfully');
+  } catch (error) {
+    core.warning(`Failed to stop USDT server: ${error.message}`);
+  }
 
-    // Send job-end event before stopping the daemon
-    try {
-      const jobId = process.env.GITHUB_JOB;
-      if (!jobId) {
-        throw new Error('GITHUB_JOB environment variable is required');
-      }
-      await triggerJobEnd(jobId, serverAddr, apiToken);
-      core.info('✅ Job end event sent successfully');
-    } catch (error) {
-      core.warning(`Failed to send job end event: ${error.message}`);
-    }
-
-    // Stop USDT server
-    try {
-      await stopUsdtServer();
-      core.info('✅ USDT server stopped successfully');
-    } catch (error) {
-      core.warning(`Failed to stop USDT server: ${error.message}`);
-    }
-
-    // First try to terminate gracefully
+  // Stop agent
+  const orbitdPid = core.getState('orbitdPid');
+  if (!orbitdPid) {
+    core.warning('No Orbit CI daemon PID found, skipping process termination');
+  } else {
+    core.debug(`Found Orbit CI daemon PID: ${orbitdPid}`);
     await new Promise((resolve, reject) => {
       try {
         process.kill(orbitdPid, 'SIGTERM');
@@ -27731,19 +27728,18 @@ async function teardown() {
         }
       }
     });
-
     core.info('✅ Orbit agent stopped successfully');
+  }
 
-    if (core.isDebug()) {
-      await printLogFileContents(logFile);
-    }
-  } catch (error) {
-    core.setFailed(`Teardown failed: ${error.message}`);
-    process.exit(1);
+  if (core.isDebug()) {
+    await printLogFileContents(logFile);
   }
 }
 
-teardown();
+run().catch(error => {
+  core.warning(`Failed to teardown Orbit CI agent: ${error.message}`);
+}); 
+
 
 module.exports = __webpack_exports__;
 /******/ })()

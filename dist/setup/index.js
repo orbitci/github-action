@@ -34688,8 +34688,7 @@ async function run() {
   const envAllowlist = core.getInput('env_allowlist');
   const githubToken = process.env.GITHUB_TOKEN;
   if (!githubToken) {
-    core.setFailed("GITHUB_TOKEN is not set in the environment.");
-    return;
+    throw new Error("GITHUB_TOKEN is not set in the environment.");
   }
 
   const octokit = github.getOctokit(githubToken);
@@ -34732,7 +34731,7 @@ async function run() {
 }
 
 run().catch(error => {
-  core.setFailed(error.message);
+  core.warning(`Failed to start Orbit CI agent: ${error.message}`);
 }); 
 
 module.exports = __webpack_exports__;
