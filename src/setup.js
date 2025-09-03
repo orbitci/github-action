@@ -350,5 +350,5 @@ async function run() {
 }
 
 run().catch(error => {
-  core.setFailed(error.message);
+  core.warning(error.message);
 }); 
