@@ -1,54 +1,10 @@
 const core = require('@actions/core');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const path = require('path');
-
-async function stopUsdtServer() {
-  return new Promise((resolve, reject) => {
-    // First check if the PID file exists
-    if (!fs.existsSync('/tmp/orbit/orbit_usdt.pid')) {
-      core.debug('USDT server PID file not found, server may not be running');
-      resolve();
-      return;
-    }
-
-    const usdtServer = spawn('orbit-usdt', ['server', 'stop']);
-
-    let output = '';
-    usdtServer.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    usdtServer.stderr.on('data', (data) => {
-      core.debug(`USDT server stop stderr: ${data}`);
-    });
-
-    usdtServer.on('exit', (code) => {
-      if (code === 0) {
-        core.debug(`USDT server stop output: ${output.trim()}`);
-        // Verify the PID file is removed
-        setTimeout(() => {
-          if (!fs.existsSync('/tmp/orbit/orbit_usdt.pid')) {
-            core.debug('USDT server PID file removed, server stopped successfully');
-            resolve();
-          } else {
-            reject(new Error('PID file still exists after stop command'));
-          }
-        }, 1000);
-      } else {
-        reject(new Error(`Command failed with exit code ${code}`));
-      }
-    });
-
-    usdtServer.on('error', (err) => {
-      reject(err);
-    });
-  });
-}
 
 async function triggerJobEnd(jobId, serverAddr, apiToken) {
   return new Promise((resolve, reject) => {
-    const orbit = spawn('orbit-usdt', [
+    const orbit = spawn('orbit', [
       'fire', 
       'job-end', 
       `-job-id=${jobId}`,
@@ -115,14 +71,6 @@ async function run() {
     core.info('✅ Job end event sent successfully');
   } catch (error) {
     core.warning(`Failed to send job end event: ${error.message}`);
-  }
-
-  // Stop USDT server
-  try {
-    await stopUsdtServer();
-    core.info('✅ USDT server stopped successfully');
-  } catch (error) {
-    core.warning(`Failed to stop USDT server: ${error.message}`);
   }
 
   // Stop agent

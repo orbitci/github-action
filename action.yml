@@ -12,10 +12,15 @@ inputs:
     description: 'The API token used to publish events to Orbit CI'
     required: true
 
-  version: 
+  version:
     description: 'The version of Orbit CI binaries to install.'
     required: false
-    default: 'v0.10.1'
+    default: 'v0.11.0'
+
+  releases_repo:
+    description: 'The repository name containing Orbit CI release artifacts'
+    required: false
+    default: 'releases'
 
   env_allowlist:
     description: |
