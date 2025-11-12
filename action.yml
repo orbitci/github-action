@@ -20,7 +20,7 @@ inputs:
   releases_repo:
     description: 'The repository name containing Orbit CI release artifacts'
     required: false
-    default: 'releases'
+    default: 'agent-releases'
 
   env_allowlist:
     description: |
