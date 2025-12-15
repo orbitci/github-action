@@ -15,7 +15,7 @@ inputs:
   version:
     description: 'The version of Orbit CI binaries to install.'
     required: false
-    default: 'v0.11.0'
+    default: 'v0.11.1'
 
   releases_repo:
     description: 'The repository name containing Orbit CI release artifacts'
