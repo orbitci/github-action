@@ -34,7 +34,7 @@ outputs:
     description: 'The version of the Orbit CI binaries that were installed'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/setup/index.js'
   post: 'dist/teardown/index.js'
 
